@@ -1,0 +1,94 @@
+{
+  "books": [
+    {
+      "filename": "books/Crônicas de Gelo e Fogo 01 - A Guerra dos Tronos-George R. R. Martin.epub",
+      "book_number": 1,
+      "book_title": "A Guerra dos Tronos",
+      "heading_tag": null,
+      "skip_documents": ["cover", "toc", "copyright", "ficha", "agradecimentos", "tradutor"],
+      "min_paragraphs": 3,
+      "use_first_paragraph_as_title": true
+    },
+    {
+      "filename": "books/Crônicas de Gelo e Fogo 02 - A Furia dos Reis-George R. R. Martin.epub",
+      "book_number": 2,
+      "book_title": "A Fúria dos Reis",
+      "heading_tag": null,
+      "skip_documents": ["cover", "toc", "copyright", "ficha", "agradecimentos", "tradutor"],
+      "min_paragraphs": 3,
+      "use_first_paragraph_as_title": true
+    },
+    {
+      "filename": "books/Crônicas de Gelo e Fogo 03 - A Tormenta de Espadas - George R. R. Martin.epub",
+      "book_number": 3,
+      "book_title": "A Tormenta de Espadas",
+      "heading_tag": null,
+      "skip_documents": ["cover", "toc", "copyright", "ficha", "agradecimentos", "tradutor"],
+      "min_paragraphs": 3,
+      "use_first_paragraph_as_title": true
+    },
+    {
+      "filename": "books/Crônicas de Gelo e Fogo 04 - O Festim dos Corvos - George R. R. Martin.epub",
+      "book_number": 4,
+      "book_title": "O Festim dos Corvos",
+      "heading_tag": null,
+      "skip_documents": ["cover", "toc", "copyright", "ficha", "agradecimentos", "tradutor"],
+      "min_paragraphs": 3,
+      "use_first_paragraph_as_title": true
+    },
+    {
+      "filename": "books/Crônicas de Gelo e Fogo 05 - A Danca dos Dragoes - George R. R. Martin.epub",
+      "book_number": 5,
+      "book_title": "A Dança dos Dragões",
+      "heading_tag": null,
+      "skip_documents": ["cover", "toc", "copyright", "ficha", "agradecimentos", "tradutor"],
+      "min_paragraphs": 3,
+      "use_first_paragraph_as_title": true
+    },
+    {
+      "filename": "books/Prequel - Fogo e Sangue - George R. R. Martin.epub",
+      "book_number": 6,
+      "book_title": "Fogo e Sangue",
+      "heading_tag": null,
+      "skip_documents": ["cover", "toc", "copyright", "ficha", "agradecimentos", "tradutor"],
+      "min_paragraphs": 3,
+      "use_first_paragraph_as_title": true
+    },
+    {
+      "filename": "books/Prequel - O Mundo de Gelo e Fogo - George R. R. Martin.epub",
+      "book_number": 7,
+      "book_title": "O Mundo de Gelo e Fogo",
+      "heading_tag": null,
+      "skip_documents": ["cover", "toc", "copyright", "ficha", "agradecimentos", "tradutor"],
+      "min_paragraphs": 3,
+      "use_first_paragraph_as_title": true
+    },
+    {
+      "filename": "books/Prequel - O Principe de Westeros e outras historias - George R. R. Martin.epub",
+      "book_number": 8,
+      "book_title": "O Príncipe de Westeros",
+      "heading_tag": null,
+      "skip_documents": ["cover", "toc", "copyright", "ficha", "agradecimentos", "tradutor"],
+      "min_paragraphs": 3,
+      "use_first_paragraph_as_title": true
+    },
+    {
+      "filename": "books/Prequel - O Cavaleiro dos Sete Reinos - George R. R. Martin.epub",
+      "book_number": 9,
+      "book_title": "O Cavaleiro dos Sete Reinos",
+      "heading_tag": null,
+      "skip_documents": ["cover", "toc", "copyright", "ficha", "agradecimentos", "tradutor"],
+      "min_paragraphs": 3,
+      "use_first_paragraph_as_title": true
+    },
+    {
+      "filename": "books/Prequel - A Princesa e a Rainha - Os Negros e os Verdes - George R. R. Martin.epub",
+      "book_number": 10,
+      "book_title": "A Princesa e a Rainha",
+      "heading_tag": null,
+      "skip_documents": ["cover", "toc", "copyright", "ficha", "agradecimentos", "tradutor"],
+      "min_paragraphs": 3,
+      "use_first_paragraph_as_title": true
+    }
+  ]
+}
