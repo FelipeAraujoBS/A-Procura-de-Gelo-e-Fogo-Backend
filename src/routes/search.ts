@@ -1,0 +1,69 @@
+import { FastifyInstance } from 'fastify'
+import db from '../db.js'
+import { SearchResponse } from '../types/index.js'
+
+interface SearchQuery {
+  q: string
+  book?: string
+  pov?: string
+  limit?: string
+  offset?: string
+}
+
+export default async function searchRoute(app: FastifyInstance) {
+  app.get<{ Querystring: SearchQuery }>('/search', async (req, reply) => {
+    const { q, book, pov, limit = '20', offset = '0' } = req.query
+
+    if (!q || q.trim().length < 2) {
+      return reply.status(400).send({ error: 'Parâmetro "q" deve ter ao menos 2 caracteres.' })
+    }
+
+    const limitNum  = Math.min(Math.max(Number(limit)  || 20, 1), 100)
+    const offsetNum = Math.max(Number(offset) || 0, 0)
+
+    let sql = `
+      SELECT
+        book_number,
+        book_title,
+        chapter_number,
+        chapter_title,
+        pov,
+        paragraph_index,
+        snippet(paragraphs, 6, '<mark>', '</mark>', '...', 24) AS snippet
+      FROM paragraphs
+      WHERE paragraphs MATCH ?
+    `
+    const params: unknown[] = [q.trim()]
+
+    if (book) {
+      sql += ` AND book_number = ?`
+      params.push(Number(book))
+    }
+
+    if (pov) {
+      sql += ` AND pov LIKE ?`
+      params.push(`%${pov}%`)
+    }
+
+    sql += ` ORDER BY rank LIMIT ? OFFSET ?`
+    params.push(limitNum, offsetNum)
+
+    let countSql = `SELECT COUNT(*) as total FROM paragraphs WHERE paragraphs MATCH ?`
+    const countParams: unknown[] = [q.trim()]
+    if (book) { countSql += ` AND book_number = ?`; countParams.push(Number(book)) }
+    if (pov)  { countSql += ` AND pov LIKE ?`;      countParams.push(`%${pov}%`) }
+
+    const { total } = db.prepare(countSql).get(...countParams) as { total: number }
+    const results   = db.prepare(sql).all(...params)
+
+    const response: SearchResponse = {
+      query:   q.trim(),
+      total,
+      limit:   limitNum,
+      offset:  offsetNum,
+      results: results as any,
+    }
+
+    return response
+  })
+}
