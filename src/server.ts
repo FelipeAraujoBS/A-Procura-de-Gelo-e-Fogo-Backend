@@ -32,8 +32,8 @@ app.setErrorHandler((error, _req, reply) => {
 })
 
 try {
-  await app.listen({ port: 3000, host: '0.0.0.0' })
-  console.log('API rodando em http://localhost:3000')
+  await app.listen({ port: 5000, host: '0.0.0.0' })
+  console.log('API rodando em http://localhost:5000')
 } catch (err) {
   app.log.error(err)
   process.exit(1)
