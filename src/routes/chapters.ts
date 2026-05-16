@@ -45,4 +45,26 @@ export default async function chaptersRoute(app: FastifyInstance) {
       }
     }
   )
+
+  app.get<{ Querystring: { book: string; chapter: string; index: string } }>(
+    '/context',
+    async (req, reply) => {
+      const { book, chapter, index } = req.query
+      const idx = Number(index)
+
+      if (!book || !chapter || isNaN(idx)) {
+        return reply.status(400).send({ error: 'Parâmetros inválidos.' })
+      }
+
+      const paragraphs = db.prepare(`
+        SELECT paragraph_index, text
+        FROM paragraphs
+        WHERE book_number = ? AND chapter_number = ?
+          AND paragraph_index BETWEEN ? AND ?
+        ORDER BY paragraph_index
+      `).all(Number(book), Number(chapter), Math.max(0, idx - 3), idx + 3)
+
+      return { paragraphs }
+    }
+  )
 }
