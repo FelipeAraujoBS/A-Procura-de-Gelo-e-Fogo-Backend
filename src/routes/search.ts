@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify'
 import db from '../db.js'
 import { SearchResponse } from '../types/index.js'
+import { sanitizeSnippet } from '../utils/sanitize.js'
 
 interface SearchQuery {
   q: string
@@ -11,7 +12,14 @@ interface SearchQuery {
 }
 
 export default async function searchRoute(app: FastifyInstance) {
-  app.get<{ Querystring: SearchQuery }>('/search', async (req, reply) => {
+  app.get<{ Querystring: SearchQuery }>('/search', {
+    config: {
+      rateLimit: {
+        max: 30,
+        timeWindow: '1 minute'
+      }
+    }
+  }, async (req, reply) => {
     const { q, book, povs, limit = '20', offset = '0' } = req.query
 
     if (!q || q.trim().length < 2) {
@@ -65,14 +73,19 @@ export default async function searchRoute(app: FastifyInstance) {
     }
 
     const { total } = db.prepare(countSql).get(...countParams) as { total: number }
-    const results   = db.prepare(sql).all(...params)
+    const results   = db.prepare(sql).all(...params) as any[]
+
+    const sanitizedResults = results.map((r) => ({
+      ...r,
+      snippet: sanitizeSnippet(r.snippet),
+    }))
 
     const response: SearchResponse = {
       query:   q.trim(),
       total,
       limit:   limitNum,
       offset:  offsetNum,
-      results: results as any,
+      results: sanitizedResults,
     }
 
     return response
