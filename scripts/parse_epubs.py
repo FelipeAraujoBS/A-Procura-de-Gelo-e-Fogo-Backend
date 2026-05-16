@@ -14,7 +14,10 @@ from bs4 import BeautifulSoup
 
 
 CONFIG_PATH = Path("scripts/epub_config.json")
+ALIASES_PATH = Path("scripts/pov_aliases.json")
 DB_PATH     = Path("database.db")
+
+POV_ALIASES: dict = json.loads(ALIASES_PATH.read_text(encoding="utf-8"))
 
 KNOWN_POVS = [
     'ARYA', 'BRAN', 'CATELYN', 'DAENERYS', 'EDDARD', 'JON', 'SANSA', 'TYRION',
@@ -84,6 +87,50 @@ def extract_pov(text: str) -> str:
     return "Desconhecido"
 
 
+CANONICAL_NAMES = {
+    "jaime": "Jaime",
+    "cersei": "Cersei",
+    "brienne": "Brienne",
+    "samwell": "Samwell",
+    "arya": "Arya",
+    "sansa": "Sansa",
+    "jon": "Jon",
+    "tyrion": "Tyrion",
+    "bran": "Bran",
+    "daenerys": "Daenerys",
+    "eddard": "Eddard",
+    "theon": "Theon",
+    "davos": "Davos",
+    "mellisandre": "Melisandre",
+    "melisandre": "Melisandre",
+    "victarion": "Victarion Greyjoy",
+}
+
+
+def normalize_pov(raw_pov: str | None) -> str | None:
+    """
+    Normaliza o POV detectado:
+    - Se for um alias conhecido, retorna o nome canônico
+    - Se for um nome em maiúsculas, normaliza para o formato canônico
+    - Se não for alias, retorna o valor original
+    - Se for None, retorna None
+    """
+    if raw_pov is None:
+        return None
+
+    # Primeiro verifica se é um alias conhecido
+    for alias, canonical in POV_ALIASES.items():
+        if raw_pov.lower() == alias.lower():
+            return canonical
+
+    # Depois normaliza nomes canônicos (remove sufixos como I, II, III etc)
+    base_name = re.sub(r'\s+(I|II|III|IV|V|VI|VII|VIII|IX|X)$', '', raw_pov, flags=re.IGNORECASE)
+    if base_name.lower() in CANONICAL_NAMES:
+        return CANONICAL_NAMES[base_name.lower()]
+
+    return raw_pov
+
+
 def parse_book(book_config: dict) -> list[dict]:
     epub_path  = book_config["filename"]
     book_num   = book_config["book_number"]
@@ -118,22 +165,40 @@ def parse_book(book_config: dict) -> list[dict]:
 
         first_para = all_paragraphs[0]
         chapter_title = first_para.strip()
-        first_pov = extract_pov(first_para)
 
         doc_filename = doc.file_name.split('/')[-1] if '/' in doc.file_name else doc.file_name
 
         if toc_map and len(toc_map) > 10 and doc_filename not in toc_map:
             continue
 
-        if toc_map and doc_filename in toc_map:
-            toc_name = toc_map[doc_filename]
-            if toc_name and not any(skip in toc_name.lower() for skip in ['agrad', 'nota', 'apêndice', 'mapa', 'crédito', 'autor']):
-                first_pov = toc_name
-                chapter_title = toc_name
+        has_pov = book_config.get("has_pov", True)
 
-        skip_keywords = ["casa ", "os ", "a ", "nota", "agrad", "epilogo", "prologo", "prólogo", "epílogo", "ficha", "capa", "copyright", "table", "nossos", "isto"]
-        if len(first_pov) <= 2 or any(first_pov.lower().startswith(kw) for kw in skip_keywords):
-            continue
+        if not has_pov:
+            pov = None
+            chapter_title = chapter_title
+        else:
+            raw_pov = extract_pov(first_para)
+
+            if toc_map and doc_filename in toc_map:
+                toc_name = toc_map[doc_filename]
+                if toc_name and not any(skip in toc_name.lower() for skip in ['agrad', 'nota', 'apêndice', 'mapa', 'crédito', 'autor']):
+                    raw_pov = toc_name
+                    chapter_title = toc_name
+
+            skip_keywords = ["casa ", "os ", "a ", "nota", "agrad", "epilogo", "prologo", "prólogo", "epílogo", "ficha", "capa", "copyright", "table", "nossos", "isto"]
+            if len(raw_pov) <= 2 or any(raw_pov.lower().startswith(kw) for kw in skip_keywords):
+                continue
+
+            pov = normalize_pov(raw_pov)
+
+            if not pov:
+                if any(w in chapter_title.lower() for w in ["prólogo", "prologo"]):
+                    pov = "Prólogo"
+                elif any(w in chapter_title.lower() for w in ["epílogo", "epilogo"]):
+                    pov = "Epílogo"
+                else:
+                    pov = "Desconhecido"
+                    print(f"   [WARNING] POV nao identificado: {doc_filename}")
 
         remaining_paragraphs = all_paragraphs[1:]
 
@@ -141,10 +206,13 @@ def parse_book(book_config: dict) -> list[dict]:
             continue
 
         chapter_number += 1
-        print(f"   [OK] Capítulo {chapter_number:03d} | POV: {first_pov} | {len(remaining_paragraphs)} parágrafos")
+        if has_pov:
+            print(f"   [OK] Cap. {chapter_number:03d} | POV: {pov:<25} | {len(remaining_paragraphs)} paragrafos")
+        else:
+            print(f"   [OK] Cap. {chapter_number:03d} | (sem POV)               | {len(remaining_paragraphs)} paragrafos")
 
         theon_dany_split = None
-        if first_pov == "Theon":
+        if pov == "Theon":
             for i, p in enumerate(remaining_paragraphs):
                 if p.strip().startswith("Daenerys") and len(remaining_paragraphs) - i > 10:
                     theon_dany_split = i
@@ -157,13 +225,13 @@ def parse_book(book_config: dict) -> list[dict]:
                     "book_title":      book_title,
                     "chapter_number":  chapter_number,
                     "chapter_title":   chapter_title,
-                    "pov":             first_pov,
+                    "pov":             pov,
                     "paragraph_index": idx,
                     "text":            text,
                 })
             dany_paragraphs = remaining_paragraphs[theon_dany_split:]
             chapter_number += 1
-            print(f"   [OK] Capítulo {chapter_number:03d} | POV: Daenerys | {len(dany_paragraphs)} parágrafos")
+            print(f"   [OK] Cap. {chapter_number:03d} | POV: Daenerys              | {len(dany_paragraphs)} paragrafos")
             for idx, text in enumerate(dany_paragraphs):
                 rows.append({
                     "book_number":     book_num,
@@ -181,7 +249,7 @@ def parse_book(book_config: dict) -> list[dict]:
                     "book_title":      book_title,
                     "chapter_number":  chapter_number,
                     "chapter_title":   chapter_title,
-                    "pov":             first_pov,
+                    "pov":             pov,
                     "paragraph_index": idx,
                     "text":            text,
                 })
