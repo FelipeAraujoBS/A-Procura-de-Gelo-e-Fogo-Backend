@@ -11,6 +11,14 @@ interface SearchQuery {
   offset?: string
 }
 
+function escapeFts5Query(query: string): string {
+  const escaped = query.trim()
+    .replace(/"/g, '""')
+    .replace(/\*/g, '"*"')
+    .replace(/\?/g, '"?"')
+  return `"${escaped}"`
+}
+
 export default async function searchRoute(app: FastifyInstance) {
   app.get<{ Querystring: SearchQuery }>('/search', {
     config: {
@@ -28,6 +36,8 @@ export default async function searchRoute(app: FastifyInstance) {
 
     const limitNum  = Math.min(Math.max(Number(limit)  || 20, 1), 100)
     const offsetNum = Math.max(Number(offset) || 0, 0)
+    const ftsQuery  = escapeFts5Query(q)
+    const params: unknown[] = [ftsQuery]
 
     let sql = `
       SELECT
@@ -41,7 +51,6 @@ export default async function searchRoute(app: FastifyInstance) {
       FROM paragraphs
       WHERE paragraphs MATCH ?
     `
-    const params: unknown[] = [q.trim()]
 
     if (book) {
       sql += ` AND book_number = ?`
@@ -61,7 +70,7 @@ export default async function searchRoute(app: FastifyInstance) {
     params.push(limitNum, offsetNum)
 
     let countSql = `SELECT COUNT(*) as total FROM paragraphs WHERE paragraphs MATCH ?`
-    const countParams: unknown[] = [q.trim()]
+    const countParams: unknown[] = [ftsQuery]
     if (book) { countSql += ` AND book_number = ?`; countParams.push(Number(book)) }
     if (povs) {
       const povList = povs.split(',').map(p => p.trim()).filter(p => p)
