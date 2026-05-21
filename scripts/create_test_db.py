@@ -11,7 +11,9 @@ DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "database.db"
 
 def main():
     if os.path.exists(DB_PATH):
-        os.remove(DB_PATH)
+        print(f"[ERRO] {DB_PATH} ja existe. Este script nao sobrescreve bancos existentes.")
+        print("       Para criar um banco de teste, remova o database.db manualmente.")
+        return
 
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()

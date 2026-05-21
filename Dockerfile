@@ -23,7 +23,6 @@ RUN npm ci --omit=dev
 
 COPY --from=builder /app/dist ./dist
 COPY entrypoint.sh ./entrypoint.sh
-COPY scripts/create_test_db.py ./scripts/create_test_db.py
 RUN chmod +x ./entrypoint.sh
 
 ENV NODE_ENV=production
