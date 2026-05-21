@@ -11,12 +11,39 @@ interface SearchQuery {
   offset?: string
 }
 
-function escapeFts5Query(query: string): string {
-  const escaped = query.trim()
+function escapeFts5SpecialChars(query: string): string {
+  return query
     .replace(/"/g, '""')
-    .replace(/\*/g, '"*"')
-    .replace(/\?/g, '"?"')
-  return `"${escaped}"`
+    .replace(/\+/g, '')
+    .replace(/~/g, '')
+    .replace(/\(/g, '')
+    .replace(/\)/g, '')
+    .replace(/:/g, '')
+    .replace(/\bAND\b/gi, '')
+    .replace(/\bOR\b/gi, '')
+    .replace(/\bNOT\b/gi, '')
+}
+
+function buildFts5Query(raw: string): string {
+  const trimmed = raw.trim()
+
+  if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
+    const inner = trimmed.slice(1, -1)
+    return `"${escapeFts5SpecialChars(inner)}"`
+  }
+
+  const terms = trimmed
+    .replace(/[.,;:!?()]/g, ' ')
+    .split(/\s+/)
+    .map(t => t.trim())
+    .filter(t => t.length > 0)
+
+  if (terms.length <= 1) {
+    return escapeFts5SpecialChars(trimmed)
+  }
+
+  const escaped = terms.map(t => escapeFts5SpecialChars(t))
+  return `NEAR(${escaped.join(' ')}, 12)`
 }
 
 export default async function searchRoute(app: FastifyInstance) {
@@ -36,7 +63,7 @@ export default async function searchRoute(app: FastifyInstance) {
 
     const limitNum  = Math.min(Math.max(Number(limit)  || 20, 1), 100)
     const offsetNum = Math.max(Number(offset) || 0, 0)
-    const ftsQuery  = escapeFts5Query(q)
+    const ftsQuery  = buildFts5Query(q)
     const params: unknown[] = [ftsQuery]
 
     let sql = `

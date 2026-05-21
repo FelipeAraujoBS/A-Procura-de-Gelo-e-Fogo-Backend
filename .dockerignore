@@ -1,0 +1,14 @@
+node_modules
+dist
+.env
+*.log
+.git
+.gitignore
+README.md
+tests
+vitest.config.ts
+scripts
+books
+books.json
+epub_config.json
+pov_aliases.json
