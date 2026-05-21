@@ -17,6 +17,11 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS ?? 'http://localhost:3000')
   .map(o => o.trim())
   .filter(Boolean)
 
+if (isProd && allowedOrigins.length === 0) {
+  console.error('ERRO: ALLOWED_ORIGINS não configurado em produção.')
+  process.exit(1)
+}
+
 export function buildApp(opts = {}) {
   return Fastify({
     logger: isProd
