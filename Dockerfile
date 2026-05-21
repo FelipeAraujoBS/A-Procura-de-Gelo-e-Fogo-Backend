@@ -16,14 +16,14 @@ FROM node:22-alpine AS runner
 
 WORKDIR /app
 
-RUN apk add --no-cache dumb-init
+RUN apk add --no-cache dumb-init sqlite
 
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
 COPY --from=builder /app/dist ./dist
-COPY database.db ./database.db
 COPY entrypoint.sh ./entrypoint.sh
+COPY scripts/create_test_db.py ./scripts/create_test_db.py
 RUN chmod +x ./entrypoint.sh
 
 ENV NODE_ENV=production

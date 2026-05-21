@@ -98,6 +98,20 @@ ALLOWED_ORIGINS=https://seudominio.com
 NODE_ENV=production
 ```
 
+## Logging
+
+Em desenvolvimento, os logs são coloridos e legíveis (pino-pretty).
+Em produção (`NODE_ENV=production`), os logs são em JSON estruturado, compatível com:
+- **Logtail** (Better Stack)
+- **Datadog**
+- **Papertrail**
+- Qualquer agregador que aceite JSON
+
+Para ver logs em produção:
+```bash
+docker logs gelo-fogo-api --follow
+```
+
 ## Deploy
 
 ### Docker
