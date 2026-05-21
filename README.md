@@ -75,7 +75,58 @@ Lista personagens que servem como ponto de vista narrativo, com contagem de cap�
 
 - `scripts/parse_epubs.py` - Parser de EPUBs para extrair texto e criar o banco de dados
 - `scripts/validate_db.py` - Valida a estrutura do banco de dados
+- `scripts/create_test_db.py` - Cria banco de dados mínimo para testes/CI
 
 ## Banco de Dados
 
 O projeto utiliza SQLite com FTS5 para busca full-text. O arquivo `database.db` deve estar na raiz do projeto.
+
+## Variáveis de Ambiente
+
+Crie um arquivo `.env` baseado no `.env.example`:
+
+```env
+PORT=5000
+ALLOWED_ORIGINS=http://localhost:3000
+NODE_ENV=development
+```
+
+Em produção, defina `ALLOWED_ORIGINS` com o domínio real do frontend:
+
+```env
+ALLOWED_ORIGINS=https://seudominio.com
+NODE_ENV=production
+```
+
+## Deploy
+
+### Docker
+
+```bash
+docker build -t search-backend .
+docker run -p 5000:5000 \
+  -e NODE_ENV=production \
+  -e ALLOWED_ORIGINS=https://seudominio.com \
+  search-backend
+```
+
+### Railway
+
+1. Conecte o repositório ao Railway
+2. Defina o diretório raiz como `A-Procura-de-Gelo-e-Fogo-Backend`
+3. Adicione as variáveis de ambiente:
+   - `NODE_ENV=production`
+   - `ALLOWED_ORIGINS=https://frontend-url.com`
+4. Faça upload do `database.db` via Railway shell ou volume persistente
+
+### Render
+
+1. Crie um novo Web Service apontando para o repositório
+2. Build Command: `cd A-Procura-de-Gelo-e-Fogo-Backend && npm install && npm run build`
+3. Start Command: `cd A-Procura-de-Gelo-e-Fogo-Backend && npm start`
+4. Adicione as variáveis de ambiente necessárias
+5. Use um volume persistente para o `database.db`
+
+### VPS com Docker Compose
+
+Veja `docker-compose.yml` na raiz do projeto para subir backend + frontend juntos.
