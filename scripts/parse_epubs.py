@@ -13,6 +13,19 @@ from ebooklib import epub, ITEM_DOCUMENT
 from bs4 import BeautifulSoup
 
 
+ROMAN = ["", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X",
+         "XI", "XII", "XIII", "XIV", "XV", "XVI", "XVII", "XVIII", "XIX", "XX",
+         "XXI", "XXII", "XXIII", "XXIV", "XXV", "XXVI", "XXVII", "XXVIII", "XXIX", "XXX"]
+
+def to_roman(n: int) -> str:
+    return ROMAN[n] if n < len(ROMAN) else str(n)
+
+# Build pattern to match any existing roman numeral suffix (I through XXX)
+# Sort by length descending so longer numerals match first
+_roman_suffixes = sorted([r for r in ROMAN if r], key=len, reverse=True)
+ROMAN_SUFFIX_PATTERN = re.compile(r'\s+(?:' + '|'.join(_roman_suffixes) + r')$', re.IGNORECASE)
+
+
 CONFIG_PATH = Path("scripts/epub_config.json")
 ALIASES_PATH = Path("scripts/pov_aliases.json")
 DB_PATH     = Path("database.db")
@@ -295,6 +308,27 @@ def insert_rows(conn: sqlite3.Connection, rows: list[dict]):
     conn.commit()
 
 
+def strip_roman_suffix(name: str) -> str:
+    return ROMAN_SUFFIX_PATTERN.sub('', name).strip()
+
+
+def assign_roman_numerals(rows: list[dict]) -> list[dict]:
+    """Post-processa os rows atribuindo numeração romana aos títulos dos capítulos com POV."""
+    # Use cleaned POV name (without roman suffix) for grouping
+    current: dict[tuple[int, str], int] = {}
+    result = []
+    for row in rows:
+        pov = row.get("pov")
+        if pov and pov.lower() not in ("prólogo", "prologo", "epílogo", "epilogo"):
+            clean_pov = strip_roman_suffix(pov)
+            key = (row["book_number"], clean_pov)
+            current[key] = current.get(key, 0) + 1
+            row["chapter_title"] = f"{clean_pov} {to_roman(current[key])}"
+        result.append(row)
+
+    return result
+
+
 def main():
     config = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
     books  = config["books"]
@@ -305,6 +339,7 @@ def main():
     total_paragraphs = 0
     for book_config in books:
         rows = parse_book(book_config)
+        rows = assign_roman_numerals(rows)
         insert_rows(conn, rows)
         total_paragraphs += len(rows)
 
