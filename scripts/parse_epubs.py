@@ -17,6 +17,11 @@ ROMAN = ["", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X",
          "XI", "XII", "XIII", "XIV", "XV", "XVI", "XVII", "XVIII", "XIX", "XX",
          "XXI", "XXII", "XXIII", "XXIV", "XXV", "XXVI", "XXVII", "XXVIII", "XXIX", "XXX"]
 
+TOC_SKIP_TITLES = {"start", "cover", "sumário", "sumario", "índice", "indice",
+                   "créditos", "creditos", "ficha técnica", "ficha tecnica",
+                   "sobre o autor", "sobre os organizadores", "sobre o organizador",
+                   "folha de rosto", "conheça outros", "coleção", "colecao"}
+
 def to_roman(n: int) -> str:
     return ROMAN[n] if n < len(ROMAN) else str(n)
 
@@ -42,6 +47,11 @@ SKIP_PATTERNS = ['cover', 'toc', 'copyright', 'ficha', 'agradecimentos', 'tradut
 
 def load_toc_ncx(epub_path: str) -> dict:
     """Carrega o arquivo toc.ncx e retorna um dicionário {filename: chapter_name}."""
+    TOC_FILENAME_PATTERNS = [
+        'index_split_',
+        'split_',
+        'part',
+    ]
     try:
         with zipfile.ZipFile(epub_path, 'r') as z:
             toc_files = [f for f in z.namelist() if 'toc.ncx' in f.lower()]
@@ -56,7 +66,15 @@ def load_toc_ncx(epub_path: str) -> dict:
                 filename = src.split('/')[-1]
                 if '#' in filename:
                     filename = filename.split('#')[0]
-                if 'index_split_' in filename or filename.startswith('Section') or '97885' in filename:
+                fn_lower = filename.lower()
+                matched = False
+                for pat in TOC_FILENAME_PATTERNS:
+                    if pat in fn_lower:
+                        matched = True
+                        break
+                if not matched and (fn_lower.startswith('section') or '97885' in fn_lower):
+                    matched = True
+                if matched:
                     toc_map[filename] = name.strip()
             return toc_map
     except Exception as e:
@@ -148,6 +166,10 @@ def parse_book(book_config: dict) -> list[dict]:
     epub_path  = book_config["filename"]
     book_num   = book_config["book_number"]
     book_title = book_config["book_title"]
+    has_pov    = book_config.get("has_pov", True)
+
+    if not has_pov:
+        return parse_book_nonpov(book_config)
 
     print("\n[Parseando] " + book_title + " (" + epub_path + ")")
 
@@ -184,34 +206,28 @@ def parse_book(book_config: dict) -> list[dict]:
         if toc_map and len(toc_map) > 10 and doc_filename not in toc_map:
             continue
 
-        has_pov = book_config.get("has_pov", True)
+        raw_pov = extract_pov(first_para)
 
-        if not has_pov:
-            pov = None
-            chapter_title = chapter_title
-        else:
-            raw_pov = extract_pov(first_para)
+        if toc_map and doc_filename in toc_map:
+            toc_name = toc_map[doc_filename]
+            if toc_name and not any(skip in toc_name.lower() for skip in ['agrad', 'nota', 'apêndice', 'mapa', 'crédito', 'autor']):
+                raw_pov = toc_name
+                chapter_title = toc_name
 
-            if toc_map and doc_filename in toc_map:
-                toc_name = toc_map[doc_filename]
-                if toc_name and not any(skip in toc_name.lower() for skip in ['agrad', 'nota', 'apêndice', 'mapa', 'crédito', 'autor']):
-                    raw_pov = toc_name
-                    chapter_title = toc_name
+        skip_keywords = ["casa ", "os ", "a ", "nota", "agrad", "epilogo", "prologo", "prólogo", "epílogo", "ficha", "capa", "copyright", "table", "nossos", "isto"]
+        if len(raw_pov) <= 2 or any(raw_pov.lower().startswith(kw) for kw in skip_keywords):
+            continue
 
-            skip_keywords = ["casa ", "os ", "a ", "nota", "agrad", "epilogo", "prologo", "prólogo", "epílogo", "ficha", "capa", "copyright", "table", "nossos", "isto"]
-            if len(raw_pov) <= 2 or any(raw_pov.lower().startswith(kw) for kw in skip_keywords):
-                continue
+        pov = normalize_pov(raw_pov)
 
-            pov = normalize_pov(raw_pov)
-
-            if not pov:
-                if any(w in chapter_title.lower() for w in ["prólogo", "prologo"]):
-                    pov = "Prólogo"
-                elif any(w in chapter_title.lower() for w in ["epílogo", "epilogo"]):
-                    pov = "Epílogo"
-                else:
-                    pov = "Desconhecido"
-                    print(f"   [WARNING] POV nao identificado: {doc_filename}")
+        if not pov:
+            if any(w in chapter_title.lower() for w in ["prólogo", "prologo"]):
+                pov = "Prólogo"
+            elif any(w in chapter_title.lower() for w in ["epílogo", "epilogo"]):
+                pov = "Epílogo"
+            else:
+                pov = "Desconhecido"
+                print(f"   [WARNING] POV nao identificado: {doc_filename}")
 
         remaining_paragraphs = all_paragraphs[1:]
 
@@ -219,10 +235,7 @@ def parse_book(book_config: dict) -> list[dict]:
             continue
 
         chapter_number += 1
-        if has_pov:
-            print(f"   [OK] Cap. {chapter_number:03d} | POV: {pov:<25} | {len(remaining_paragraphs)} paragrafos")
-        else:
-            print(f"   [OK] Cap. {chapter_number:03d} | (sem POV)               | {len(remaining_paragraphs)} paragrafos")
+        print(f"   [OK] Cap. {chapter_number:03d} | POV: {pov:<25} | {len(remaining_paragraphs)} paragrafos")
 
         theon_dany_split = None
         if pov == "Theon":
@@ -268,6 +281,121 @@ def parse_book(book_config: dict) -> list[dict]:
                 })
 
     print("   --> Total: " + str(chapter_number) + " capítulos, " + str(len(rows)) + " parágrafos")
+    return rows
+
+
+def parse_book_nonpov(book_config: dict) -> list[dict]:
+    """Parseia livros sem POV:
+       - Agrupa documentos consecutivos não-TOC no grupo TOC anterior.
+       - Grupos TOC pequenos (<= min_pars) são "title cards": mesclam com o
+         grupo seguinte e emprestam seu titulo.
+    """
+    epub_path  = book_config["filename"]
+    book_num   = book_config["book_number"]
+    book_title = book_config["book_title"]
+    min_pars   = book_config.get("min_paragraphs", 3)
+
+    print("\n[Parseando] " + book_title + " (" + epub_path + ")")
+
+    toc_map = load_toc_ncx(epub_path)
+    if toc_map:
+        print(f"   [TOC] Carregados {len(toc_map)} itens do toc.ncx")
+
+    book = epub.read_epub(epub_path)
+    documents = list(book.get_items_of_type(ITEM_DOCUMENT))
+
+    # Phase 1: collect all paragraphs, group consecutive non-TOC into preceding TOC group
+    # groups = [{"toc": str|None, "paras": [str]}]
+    groups = []
+    for doc in documents:
+        if should_skip_document(doc.file_name):
+            continue
+
+        soup = BeautifulSoup(doc.get_content(), "html.parser")
+        all_paragraphs = [
+            clean_text(p.get_text(separator=" ", strip=True))
+            for p in soup.find_all("p")
+            if clean_text(p.get_text(separator=" ", strip=True))
+        ]
+
+        if len(all_paragraphs) < 2:
+            continue
+
+        doc_filename = doc.file_name.split('/')[-1] if '/' in doc.file_name else doc.file_name
+        raw_toc = toc_map.get(doc_filename)
+
+        has_toc = raw_toc is not None
+        clean_toc = None
+        if raw_toc and len(raw_toc) > 2 and raw_toc.lower() not in TOC_SKIP_TITLES:
+            clean_toc = raw_toc
+
+        if has_toc:
+            groups.append({"toc": clean_toc, "paras": list(all_paragraphs)})
+        else:
+            if groups:
+                groups[-1]["paras"].extend(all_paragraphs)
+            else:
+                groups.append({"toc": None, "paras": list(all_paragraphs)})
+
+    # Phase 2: merge small TOC groups ("title cards") with the next group
+    merged = []
+    i = 0
+    while i < len(groups):
+        g = groups[i]
+        if g["toc"] and len(g["paras"]) <= min_pars and i + 1 < len(groups):
+            nxt = groups[i + 1]
+            g["paras"].extend(nxt["paras"])
+            merged.append(g)
+            i += 2
+        else:
+            merged.append(g)
+            i += 1
+
+    # Phase 3: orphan groups without toc merge into the preceding group
+    final = []
+    for g in merged:
+        if g["toc"]:
+            final.append(g)
+        else:
+            if final:
+                final[-1]["paras"].extend(g["paras"])
+            else:
+                final.append(g)
+
+    # Phase 4: create chapters
+    rows = []
+    chapter_number = 0
+    for g in final:
+        paras = g["paras"]
+        toc   = g["toc"]
+        if len(paras) < min_pars:
+            continue
+
+        chapter_number += 1
+        if toc:
+            chapter_title = toc
+            remaining = paras
+        else:
+            chapter_title = paras[0]
+            remaining = paras[1:]
+
+        if len(remaining) < 1:
+            continue
+
+        print(f"   [OK] Cap. {chapter_number:03d} | (sem POV)               | {len(remaining)} paragrafos")
+
+        for idx, text in enumerate(remaining):
+            rows.append({
+                "book_number":     book_num,
+                "book_title":      book_title,
+                "chapter_number":  chapter_number,
+                "chapter_title":   chapter_title,
+                "pov":             None,
+                "paragraph_index": idx,
+                "text":            text,
+            })
+
+    print(f"   --> Total: {chapter_number} capítulos, {len(rows)} parágrafos")
     return rows
 
 
