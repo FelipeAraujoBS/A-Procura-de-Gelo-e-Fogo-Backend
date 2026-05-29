@@ -441,16 +441,20 @@ def strip_roman_suffix(name: str) -> str:
 
 
 def assign_roman_numerals(rows: list[dict]) -> list[dict]:
-    """Post-processa os rows atribuindo numeração romana aos títulos dos capítulos com POV."""
-    # Use cleaned POV name (without roman suffix) for grouping
+    """Post-processa os rows atribuindo numeração romana aos títulos dos capítulos com POV.
+       Incrementa o contador UMA vez por capítulo, não por parágrafo."""
     current: dict[tuple[int, str], int] = {}
+    seen: set[tuple[int, str, int]] = set()
     result = []
     for row in rows:
         pov = row.get("pov")
         if pov and pov.lower() not in ("prólogo", "prologo", "epílogo", "epilogo"):
             clean_pov = strip_roman_suffix(pov)
             key = (row["book_number"], clean_pov)
-            current[key] = current.get(key, 0) + 1
+            ch_key = (row["book_number"], clean_pov, row["chapter_number"])
+            if ch_key not in seen:
+                seen.add(ch_key)
+                current[key] = current.get(key, 0) + 1
             row["chapter_title"] = f"{clean_pov} {to_roman(current[key])}"
         result.append(row)
 
