@@ -8,6 +8,7 @@ import searchRoute   from './routes/search.js'
 import booksRoute    from './routes/books.js'
 import chaptersRoute from './routes/chapters.js'
 import povsRoute     from './routes/povs.js'
+import chatRoute     from './routes/chat.js'
 
 const isProd = process.env.NODE_ENV === 'production'
 const port   = Number(process.env.PORT) || 3000
@@ -61,7 +62,7 @@ export async function registerPlugins(app: ReturnType<typeof buildApp>) {
         cb(new Error(`Origem não permitida pelo CORS: ${origin}`), false)
       }
     },
-    methods: ['GET'],
+    methods: ['GET', 'POST'],
     allowedHeaders: ['Content-Type'],
     maxAge: 86400,
   })
@@ -81,6 +82,7 @@ export async function registerPlugins(app: ReturnType<typeof buildApp>) {
   await app.register(booksRoute)
   await app.register(chaptersRoute)
   await app.register(povsRoute)
+  await app.register(chatRoute)
 
   app.get('/health', async () => ({
     status: 'ok',
