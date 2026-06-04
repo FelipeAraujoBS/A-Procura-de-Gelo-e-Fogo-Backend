@@ -1,28 +1,33 @@
-# Uma Busca de Gelo e Fogo — API
+# A Procura de Gelo e Fogo — API
 
-**Motor de busca full-text** para *As Crônicas de Gelo e Fogo*. Indexa 10 livros, 2.400+ capítulos e dezenas de milhares de parágrafos de arquivos EPUB, entregando busca por termos, frases exatas e operadores de proximidade com resposta em milissegundos.
+**Full-text search engine** for *A Song of Ice and Fire*. Indexes 10 books, 2,400+ chapters, and tens of thousands of paragraphs from EPUB files, delivering term search, exact phrases, and proximity operators with millisecond responses.
 
-> ⚔️ Projetado para performance, escalabilidade zero-copy e experiência de leitura fluida.
+> ⚔️ Designed for performance, zero-copy scalability, and a fluid reading experience.
+
+Serves as the **backend API** for the **A Procura de Gelo e Fogo** ecosystem — including a [RAG microservice](https://github.com/FelipeAraujoBS/search) for LLM-powered question answering and a [Next.js frontend](https://github.com/FelipeAraujoBS/search).
 
 ---
 
-## Índice
+## Table of Contents
 
-- [Arquitetura](#arquitetura)
-- [Pipeline de Dados](#pipeline-de-dados)
-- [Motor de Busca](#motor-de-busca)
-- [API REST](#api-rest)
-- [Segurança](#segurança)
-- [Stack Decisões Técnicas](#stack-decisões-técnicas)
+- [Architecture](#architecture)
+- [Data Pipeline](#data-pipeline)
+- [Search Engine](#search-engine)
+- [Chat Proxy (RAG)](#chat-proxy-rag)
+- [REST API](#rest-api)
+- [Security](#security)
+- [Stack & Technical Decisions](#stack--technical-decisions)
 - [CI/CD & Deploy](#cicd--deploy)
+- [Environment Variables](#environment-variables)
+- [Tests](#tests)
 
 ---
 
-## Arquitetura
+## Architecture
 
 ```
 ┌──────────────────────────────────────────────────┐
-│                   Cliente                        │
+│                    Client                         │
 │         (Next.js / cURL / mobile)                │
 └──────────────────┬───────────────────────────────┘
                    │ HTTPS
@@ -31,116 +36,133 @@
 │              Fastify Server (API)                 │
 │  ┌─────────┐ ┌──────────┐ ┌──────────────────┐   │
 │  │ Helmet  │ │  CORS    │ │  Rate Limit       │   │
-│  │ (CSP)   │ │ (origins)│ │  (60 req/min)     │   │
+│  │ (CSP)   │ │ (origins)│ │  (60/30 req/min)  │   │
 │  └─────────┘ └──────────┘ └──────────────────┘   │
-│  ┌─────────┐ ┌──────────┐ ┌──────────────────┐   │
-│  │ Search  │ │  Books   │ │  Chapters / POVs  │   │
-│  │ Route   │ │  Route   │ │  Routes           │   │
-│  └────┬────┘ └────┬─────┘ └────────┬─────────┘   │
-│       │           │                │              │
-│       ▼           ▼                ▼              │
-│  ┌────────────────────────────────────────────┐   │
-│  │         SQLite FTS5 (read-only)            │   │
-│  │  paragraphs (FTS5 virtual table)           │   │
-│  │  Tokenizer: unicode61                      │   │
-│  └────────────────────────────────────────────┘   │
-└──────────────────────────────────────────────────┘
+│  ┌─────────┐ ┌──────────┐ ┌────────────┐ ┌──────┐│
+│  │ Search  │ │  Books   │ │Chapters/POV│ │ Chat ││
+│  │ Route   │ │  Route   │ │  Routes    │ │Proxy ││
+│  └────┬────┘ └────┬─────┘ └──────┬─────┘ └──┬───┘│
+│       │           │              │           │     │
+│       ▼           ▼              ▼           │     │
+│  ┌────────────────────────────────────────┐   │     │
+│  │         SQLite FTS5 (read-only)        │   │     │
+│  │  paragraphs (FTS5 virtual table)       │   │     │
+│  │  Tokenizer: unicode61                  │   │     │
+│  └────────────────────────────────────────┘   │     │
+└───────────────────────────────────────────────┼─────┘
+                                                │
+                                                ▼
+                     ┌──────────────────────────────────────┐
+                     │    RAG Microservice (FastAPI)        │
+                     │    Hybrid Search + Groq LLM          │
+                     └──────────────────────────────────────┘
 ```
 
-### Princípios
+### Principles
 
-| Princípio | Aplicação |
-|-----------|-----------|
-| **Read-only** | Banco aberto em modo `readonly` — zero lock contention |
-| **Stateless** | API sem estado de sessão, escala horizontalmente |
-| **Defesa em profundidade** | Helmet + CORS + Rate limit em camadas |
-| **Zero-copy search** | FTS5 opera direto no índice, sem carregar dados em memória |
-| **Fail-fast** | Validação de parâmetros no início de cada request |
+| Principle | Application |
+|-----------|-------------|
+| **Read-only** | Database opened in `readonly` mode — zero lock contention |
+| **Stateless** | No session state, scales horizontally |
+| **Defense in depth** | Helmet + CORS + Rate limit layered |
+| **Zero-copy search** | FTS5 operates directly on index, no data loaded into memory |
+| **Fail-fast** | Parameter validation at the start of each request |
 
 ---
 
-## Pipeline de Dados
+## Data Pipeline
 
-O sistema não é apenas uma API — é uma **plataforma de processamento de livros**:
+The system is more than an API — it's a **book processing platform**:
 
 ```
-EPUB ──▶ Extração HTML ──▶ Parsing (BeautifulSoup) ──▶ Detecção POV ──▶ FTS5 Index
-         │                    │                            │
-         ▼                    ▼                            ▼
-    toc.ncx              Remove: cover,              Normalização de
-    navegação            copyright, toc,             aliases (ex: "Fedor"
-                         apêndices, etc.             → "Theon")
+EPUB ──▶ HTML Extraction ──▶ Parsing (BeautifulSoup) ──▶ POV Detection ──▶ FTS5 Index
+         │                      │                             │
+         ▼                      ▼                             ▼
+    toc.ncx                 Remove: cover,                Normalization of
+    navigation              copyright, toc,               aliases (e.g. "Fedor"
+                            appendices, etc.              → "Theon")
 ```
 
-### Destaques do Parser (`scripts/parse_epubs.py`)
+### Parser Highlights (`scripts/parse_epubs.py`)
 
-- **Detecção automática de POV**: analisa o primeiro parágrafo de cada documento HTML no EPUB e identifica o personagem narrador por heurística de maiúsculas + lista de POVs conhecidos
-- **Resolução de aliases**: mapeia títulos de capítulo ("O Homem do Mercador", "Fedor") para nomes canônicos ("Quentyn Martell", "Theon") via `pov_aliases.json`
-- **Theon/Daenerys split**: detecção automática de capítulos de Theon que viram capítulos da Daenerys no meio do texto (ADWD)
-- **Numeração romana**: geração automática de títulos como "Bran I", "Catelyn II" baseada na ordenação dos capítulos por POV dentro de cada livro
-- **Migração**: script `migrate_chapter_titles.py` para aplicar numeração romana em bancos existentes
+- **Automatic POV detection**: analyzes the first paragraph of each HTML document in the EPUB and identifies the narrator character by capitalization heuristics + known POV list
+- **Alias resolution**: maps chapter titles ("O Homem do Mercador", "Fedor") to canonical names ("Quentyn Martell", "Theon") via `pov_aliases.json`
+- **Theon/Daenerys split**: automatic detection of Theon chapters that turn into Daenerys chapters mid-text (ADWD)
+- **Roman numeral generation**: automatic titles like "Bran I", "Catelyn II" based on chapter ordering per POV within each book
+- **Migration**: `migrate_chapter_titles.py` script for applying Roman numerals to existing databases
 
-### Esquema do Banco
+### Database Schema
 
 ```sql
 CREATE VIRTUAL TABLE paragraphs USING fts5(
-    book_number,        -- 1 a 10
+    book_number,        -- 1 to 10
     book_title,         -- "A Guerra dos Tronos"
-    chapter_number,     -- ordinal do capítulo no livro
+    chapter_number,     -- chapter ordinal in book
     chapter_title,      -- "Bran I", "Catelyn II", etc.
-    pov,                -- "Bran", "Catelyn" (nome canônico)
-    paragraph_index,    -- posição do parágrafo no capítulo
-    text,               -- conteúdo textual
-    tokenize = 'unicode61'  -- suporte a unicode (português)
+    pov,                -- "Bran", "Catelyn" (canonical name)
+    paragraph_index,    -- paragraph position in chapter
+    text,               -- textual content
+    tokenize = 'unicode61'  -- unicode support (Portuguese)
 );
+```
+
+### Book Configuration
+
+Books are configured via `books.json`:
+
+```json
+[
+  { "filename": "books/Crônicas de Gelo e Fogo 01 - A Guerra dos Tronos-George R. R. Martin.epub", "path": "./books/..." },
+  ...
+]
 ```
 
 ---
 
-## Motor de Busca
+## Search Engine
 
-### Pipeline da Query
+### Query Pipeline
 
 ```
 Input: "inverno está chegando"
          │
          ▼
-   1. Sanitização (escape FTS5 special chars: + ~ ( ) : )
+   1. Sanitization (escape FTS5 special chars: + ~ ( ) : )
          │
          ▼
-   2. Detecção de frase exata (aspas duplas)
+   2. Exact phrase detection (double quotes)
          │
          ▼
-   3. Para múltiplos termos: operador NEAR(termos, 12)
-      (capítulo de distância máxima entre os termos)
+   3. For multiple terms: NEAR(terms, 12) operator
+      (maximum word distance between terms)
          │
          ▼
-   4. Execução no índice FTS5 com snippet()
-      (6 termos de contexto, <mark> no match)
+   4. FTS5 index query with snippet()
+      (6 terms of context, <mark> on match)
          │
          ▼
-   5. Sanitização do HTML do snippet
+   5. HTML snippet sanitization (sanitize-html)
          │
          ▼
-   6. Paginação (LIMIT/OFFSET, máx 100)
+   6. Pagination (LIMIT/OFFSET, max 100)
 ```
 
-### Exemplos de Query
+### Query Examples
 
-| Input | Comportamento |
-|-------|--------------|
-| `"Dracarys"` | Frase exata — busca literal |
-| `lobos gigantes` | `NEAR(lobos gigantes, 12)` — até 12 palavras de distância |
-| `inverno chegando` | `NEAR(inverno chegando, 12)` — ambos os termos próximos |
-| `"Valar Morghulis"` | Frase exata — os dois termos juntos |
+| Input | Behavior |
+|-------|----------|
+| `"Dracarys"` | Exact phrase — literal search |
+| `lobos gigantes` | `NEAR(lobos gigantes, 12)` — up to 12 words apart |
+| `inverno chegando` | `NEAR(inverno chegando, 12)` — both terms nearby |
+| `"Valar Morghulis"` | Exact phrase — both terms together |
 
-### Filtros
+### Filters
 
-- **`book`**: filtra por livro específico (WHERE book_number = ?)
-- **`povs`**: filtra por múltiplos personagens (WHERE pov IN (...))
-- Ambos usam **bind parameters** (não concatenam strings) — sem SQL injection
+- **`book`**: filter by specific book (`WHERE book_number = ?`)
+- **`povs`**: filter by multiple characters (`WHERE pov IN (...)`), comma-separated
+- Both use **bind parameters** (no string concatenation) — no SQL injection
 
-### Paginação
+### Pagination
 
 ```json
 {
@@ -151,26 +173,64 @@ Input: "inverno está chegando"
 }
 ```
 
-Duas queries por requisição: `COUNT(*)` para o total + `SELECT` paginado com `LIMIT/OFFSET`.
+Two queries per request: `COUNT(*)` for total + paginated `SELECT` with `LIMIT/OFFSET`.
 
 ---
 
-## API REST
+## Chat Proxy (RAG)
+
+The backend acts as a **secure proxy** to the RAG microservice:
+
+```
+POST /api/chat
+  → validates message (≥ 2 chars)
+  → forwards { question } to RAG_MICROSERVICE_URL/api/chat
+  → returns { reply: { content, sources, timestamp } }
+```
+
+- 300s timeout with AbortController
+- Graceful fallback if RAG microservice is unavailable
+- Rate limited at 60 req/min
+
+### Chat Response
+
+```json
+{
+  "reply": {
+    "id": "chat_1717000000000",
+    "role": "assistant",
+    "content": "Jaime Lannister.",
+    "sources": [
+      {
+        "book_title": "A Tormenta de Espadas",
+        "chapter_title": "Jaime VIII",
+        "pov": "Jaime Lannister"
+      }
+    ],
+    "timestamp": 1717000000000
+  }
+}
+```
+
+---
+
+## REST API
 
 ### Endpoints
 
-| Método | Rota | Descrição | Rate Limit |
-|--------|------|-----------|------------|
+| Method | Route | Description | Rate Limit |
+|--------|-------|-------------|------------|
 | `GET` | `/health` | Health check (status, timestamp, env) | — |
-| `GET` | `/search?q=&book=&povs=&limit=&offset=` | Busca full-text | 30 req/min |
-| `GET` | `/books` | Lista livros com contagens | 60 req/min |
-| `GET` | `/books/:id` | Detalhe de um livro | 60 req/min |
-| `GET` | `/books/:id/chapters` | Capítulos de um livro | 60 req/min |
-| `GET` | `/books/:id/chapters/:chapter` | Conteúdo de um capítulo | 60 req/min |
-| `GET` | `/context?book=&chapter=&index=` | Parágrafos vizinhos (±3) | 60 req/min |
-| `GET` | `/povs?book=` | Personagens POV disponíveis | 60 req/min |
+| `GET` | `/search?q=&book=&povs=&limit=&offset=` | Full-text search | 30 req/min |
+| `GET` | `/books` | List books with counts | 60 req/min |
+| `GET` | `/books/:id` | Book details | 60 req/min |
+| `GET` | `/books/:id/chapters` | Book chapters | 60 req/min |
+| `GET` | `/books/:id/chapters/:chapter` | Chapter content | 60 req/min |
+| `GET` | `/context?book=&chapter=&index=` | Neighboring paragraphs (±3) | 60 req/min |
+| `GET` | `/povs?book=` | Available POV characters | 60 req/min |
+| `POST` | `/api/chat` | Chat via RAG microservice | 60 req/min |
 
-### Resposta de Exemplo
+### Example Response
 
 ```json
 GET /search?q=Dracarys&book=3
@@ -196,57 +256,57 @@ GET /search?q=Dracarys&book=3
 
 ---
 
-## Segurança
+## Security
 
-| Camada | Implementação |
-|--------|--------------|
-| **Content Security Policy** | Helmet com diretivas restritivas (default-src 'self') |
-| **CORS** | Whitelist de origens via `ALLOWED_ORIGINS`, apenas GET |
-| **Rate Limiting** | 60 req/min global, 30 req/min para /search |
-| **Input sanitization** | `sanitize-html` nos snippets retornados |
-| **SQL Injection** | Todos os parâmetros via bind (prepared statements) |
-| **Query sanitization** | Escape de caracteres especiais do FTS5 |
+| Layer | Implementation |
+|-------|---------------|
+| **Content Security Policy** | Helmet with restrictive directives (default-src 'self') |
+| **CORS** | Origin whitelist via `ALLOWED_ORIGINS`, GET + POST only |
+| **Rate Limiting** | 60 req/min global, 30 req/min for `/search` |
+| **Input sanitization** | `sanitize-html` on returned snippets |
+| **SQL Injection** | All parameters via bind (prepared statements) |
+| **Query sanitization** | FTS5 special character escaping |
 
 ---
 
-## Stack & Decisões Técnicas
+## Stack & Technical Decisions
 
-### Por que Fastify?
+### Why Fastify?
 
-- **Performance**: 2x-3x mais rápido que Express em benchmarks
-- **Schema-based**: validação de parâmetros com JSON Schema
-- **Plugin system**: modular por rota, fácil de testar
-- **Logger nativo**: Pino (JSON estruturado em produção)
+- **Performance**: 2x-3x faster than Express in benchmarks
+- **Schema-based**: parameter validation with JSON Schema
+- **Plugin system**: modular per route, easy to test
+- **Native logger**: Pino (structured JSON in production)
 
-### Por que SQLite FTS5?
+### Why SQLite FTS5?
 
-- **Zero operação**: sem servidor de banco, sem Docker dependente
-- **Full-text nativo**: FTS5 é o mecanismo de busca textual mais maduro do SQLite
-- **Snippets**: função `snippet()` nativa com destaque de termos
-- **Portabilidade**: o banco é um único arquivo — versionável, copiável, deployável
-- **Read-only**: sem locks, sem concorrência, sem chance de corrupção em produção
+- **Zero operations**: no database server, no dependent Docker
+- **Native full-text**: FTS5 is SQLite's most mature text search engine
+- **Snippets**: native `snippet()` function with term highlighting
+- **Portability**: single file database — versionable, copyable, deployable
+- **Read-only**: no locks, no concurrency, no corruption chance in production
 
-### Decisões de Arquitetura
+### Architecture Decisions
 
-| Decisão | Alternativa | Por que escolhemos |
-|---------|-------------|-------------------|
-| Banco único | Elasticsearch / Meilisearch | Dados cabem em 50MB. Um servidor de busca é overkill. |
-| Read-only | Read-write | API é consulta pura. Read-only elimina locks e corrupção. |
-| Paginação offset | Cursor / search_after | Dataset pequeno (< 100k linhas), offset é simples e suficiente. |
-| rate-limit por rota | rate-limit global | `/search` é mais intensivo (FTS5), merece limite mais baixo. |
+| Decision | Alternative | Why chosen |
+|----------|-------------|------------|
+| Single database | Elasticsearch / Meilisearch | Data fits in 50MB. A search server is overkill. |
+| Read-only | Read-write | API is pure query. Read-only eliminates locks and corruption. |
+| Offset pagination | Cursor / search_after | Small dataset (< 100k rows), offset is simple and sufficient. |
+| Per-route rate limit | Global rate limit | `/search` is more intensive (FTS5), deserves a lower limit. |
 
-### Tratamento de Erros
+### Error Handling
 
 ```json
 {
-  "error": "Parâmetro \"q\" deve ter ao menos 2 caracteres.",
+  "error": "Parameter \"q\" must be at least 2 characters.",
   "statusCode": 400
 }
 ```
 
-- Erros de validação: 400
-- Rate limit excedido: 429 com mensagem em português
-- Erros internos: 500 (logados no Pino)
+- Validation errors: 400
+- Rate limit exceeded: 429 with Portuguese message
+- Internal errors: 500 (logged via Pino)
 
 ---
 
@@ -255,18 +315,18 @@ GET /search?q=Dracarys&book=3
 ### GitHub Actions
 
 ```yaml
-- Cria banco de teste com dados sintéticos
-- Roda 29 testes (vitest)
+- Create test database with synthetic data
+- Run 29+ tests (vitest)
 - Build TypeScript
-- Separação estrita: CI não precisa de banco real
+- Strict separation: CI doesn't need a real database
 ```
 
 ### Deploy (Render)
 
-1. Push na `main` → CI roda testes
-2. Render detecta mudança, builda a Docker image
-3. Banco `database.db` versionado no repositório (não gitignorado)
-4. Volume persistente para o banco em produção
+1. Push to `main` → CI runs tests
+2. Render detects change, builds Docker image
+3. `database.db` versioned in repository (not gitignored)
+4. Persistent volume for database in production
 
 ### Docker Compose (dev + prod)
 
@@ -276,38 +336,44 @@ services:
     build: ./A-Procura-de-Gelo-e-Fogo-Backend
     ports: ["5000:5000"]
     volumes: ["./A-Procura-de-Gelo-e-Fogo-Backend/database.db:/app/database.db"]
+    environment:
+      - ALLOWED_ORIGINS=http://localhost:3000
+      - RAG_MICROSERVICE_URL=http://rag:7860
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:5000/health"]
 ```
 
 ---
 
-## Variáveis de Ambiente
+## Environment Variables
 
-| Variável | Obrigatório | Padrão | Descrição |
-|----------|-------------|--------|-----------|
-| `PORT` | Não | 3000 | Porta do servidor |
-| `ALLOWED_ORIGINS` | Sim (produção) | — | Origens permitidas no CORS (separadas por vírgula) |
-| `NODE_ENV` | Não | development | `production` ativa logs JSON estruturados |
-| `DB_PATH` | Não | ./database.db | Caminho do banco SQLite |
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `PORT` | No | 3000 | Server port |
+| `ALLOWED_ORIGINS` | Yes (prod) | — | CORS allowed origins (comma-separated) |
+| `NODE_ENV` | No | development | `production` enables structured JSON logs |
+| `DB_PATH` | No | ./database.db | SQLite database path |
+| `RAG_MICROSERVICE_URL` | No | — | RAG microservice URL (e.g. http://rag:7860) |
 
 ---
 
-## Testes
+## Tests
 
 ```bash
-npm test           # 29 testes
-npm run test:watch # Modo watch
+npm test           # 29+ tests
+npm run test:watch # Watch mode
 ```
 
-Os testes usam `vitest` + `supertest` e criam um banco isolado com dados sintéticos. Validam:
+Tests use `vitest` + `supertest` with an isolated synthetic database. They validate:
 
-- Busca por termo único e múltiplo
-- Busca por frase exata
-- Filtros por livro e POV
-- Paginação
+- Single and multi-term search
+- Exact phrase search
+- Book and POV filters
+- Pagination
 - Rate limiting
 - Health check
-- Validação de parâmetros
+- Parameter validation
 
 ---
 
-> Projetado e desenvolvido por [FelipeAraujoBS](https://github.com/FelipeAraujoBS)
+> Designed and developed by [FelipeAraujoBS](https://github.com/FelipeAraujoBS)
