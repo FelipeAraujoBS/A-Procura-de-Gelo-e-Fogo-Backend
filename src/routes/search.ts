@@ -11,6 +11,20 @@ interface SearchQuery {
   offset?: string
 }
 
+const STOP_WORDS = new Set([
+  'o', 'a', 'os', 'as', 'um', 'uma', 'uns', 'umas',
+  'de', 'da', 'do', 'das', 'dos', 'dum', 'duns', 'duma', 'dumas',
+  'em', 'na', 'no', 'nas', 'nos', 'num', 'numa', 'nuns', 'numas',
+  'para', 'pra', 'pro', 'pelo', 'pela', 'pelos', 'pelas',
+  'por', 'com', 'sem', 'sob', 'sobre', 'entre', 'até', 'após',
+  'e', 'mas', 'que', 'como', 'mais', 'muito', 'pouco', 'também',
+  'já', 'ainda', 'bem', 'não', 'sim', 'lhe', 'lhes',
+  'seu', 'sua', 'seus', 'suas', 'meu', 'minha', 'meus', 'minhas',
+  'teu', 'tua', 'teus', 'tuas', 'nosso', 'nossa', 'nossos', 'nossas',
+  'ele', 'ela', 'eles', 'elas', 'eu', 'tu', 'ele', 'nós', 'vós',
+  'me', 'te', 'se', 'nos', 'vos', 'ao', 'aos', 'à', 'às',
+])
+
 function escapeFts5SpecialChars(query: string): string {
   return query
     .replace(/"/g, '""')
@@ -32,7 +46,7 @@ function buildFts5Query(raw: string): string {
     return `"${escapeFts5SpecialChars(inner)}"`
   }
 
-  const terms = trimmed
+  let terms = trimmed
     .replace(/[.,;:!?()]/g, ' ')
     .split(/\s+/)
     .map(t => t.trim())
@@ -42,7 +56,14 @@ function buildFts5Query(raw: string): string {
     return escapeFts5SpecialChars(trimmed)
   }
 
-  const escaped = terms.map(t => escapeFts5SpecialChars(t))
+  const filtered = terms.filter(t => !STOP_WORDS.has(t.toLowerCase()))
+
+  if (filtered.length <= 1) {
+    const escaped = terms.map(t => escapeFts5SpecialChars(t))
+    return `NEAR(${escaped.join(' ')}, 12)`
+  }
+
+  const escaped = filtered.map(t => escapeFts5SpecialChars(t))
   return `NEAR(${escaped.join(' ')}, 12)`
 }
 

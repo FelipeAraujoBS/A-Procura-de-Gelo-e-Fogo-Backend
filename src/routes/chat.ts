@@ -17,6 +17,7 @@ interface MicroserviceResponse {
 }
 
 const RAG_MICROSERVICE_URL = process.env.RAG_MICROSERVICE_URL
+const RAG_API_KEY = process.env.RAG_API_KEY
 
 export default async function chatRoute(app: FastifyInstance) {
   app.post<{ Body: ChatBody }>('/api/chat', async (req, reply) => {
@@ -49,11 +50,16 @@ export default async function chatRoute(app: FastifyInstance) {
 
     try {
       const controller = new AbortController()
-      const timeout = setTimeout(() => controller.abort(), 300000)
+      const timeout = setTimeout(() => controller.abort(), 120000)
+
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (RAG_API_KEY) {
+        headers['Authorization'] = `Bearer ${RAG_API_KEY}`
+      }
 
       const response = await fetch(`${RAG_MICROSERVICE_URL}/api/chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ question }),
         signal: controller.signal,
       })
