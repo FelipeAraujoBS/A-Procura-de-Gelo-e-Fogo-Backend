@@ -3,6 +3,9 @@ import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import helmet from '@fastify/helmet'
 import rateLimit from '@fastify/rate-limit'
+import pino from 'pino'
+import { Transform } from 'stream'
+import { hostname } from 'os'
 
 import searchRoute   from './routes/search.js'
 import booksRoute    from './routes/books.js'
@@ -23,16 +26,69 @@ if (isProd && allowedOrigins.length === 0) {
   process.exit(1)
 }
 
+function buildLogger() {
+  const INGESTOR_URL = process.env.LOGFLOW_URL ?? 'http://localhost:3000'
+  const API_KEY = process.env.LOGFLOW_API_KEY
+  const streams: pino.StreamEntry[] = []
+
+  if (isProd) {
+    streams.push({ stream: pino.destination(1) })
+  } else {
+    streams.push({
+      stream: pino.transport({
+        target: 'pino-pretty',
+        options: { colorize: true },
+      }),
+    })
+  }
+
+  if (API_KEY) {
+    streams.push({
+      stream: new Transform({
+        objectMode: true,
+        transform(chunk: any, _enc: any, callback: any) {
+          fetch(`${INGESTOR_URL}/api/v1/logs`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${API_KEY}`,
+            },
+            body: JSON.stringify({
+              severity:
+                chunk.level >= 50 ? 'FATAL'
+                : chunk.level >= 40 ? 'ERROR'
+                : chunk.level >= 30 ? 'WARN'
+                : chunk.level >= 20 ? 'INFO'
+                : 'DEBUG',
+              service: {
+                name: chunk.name ?? 'gelo-fogo-api',
+                version: process.env.APP_VERSION ?? '1.0.0',
+                environment: isProd ? 'production' : 'development',
+                host: chunk.hostname ?? hostname(),
+              },
+              message: chunk.msg,
+              timestamp: chunk.time ? new Date(chunk.time).toISOString() : new Date().toISOString(),
+              metadata: {
+                reqId: chunk.reqId,
+                ...(chunk.err ? { error: chunk.err } : {}),
+              },
+            }),
+          }).catch(() => {})
+          callback(null, chunk)
+        },
+      }),
+    })
+  }
+
+  return pino(
+    { level: isProd ? 'info' : 'debug' },
+    pino.multistream(streams),
+  )
+}
+
 export function buildApp(opts = {}) {
   return Fastify({
-    logger: isProd
-      ? true
-      : {
-          transport: {
-            target: 'pino-pretty',
-            options: { colorize: true },
-          },
-        },
+    logger: buildLogger(),
     ...opts,
   })
 }
