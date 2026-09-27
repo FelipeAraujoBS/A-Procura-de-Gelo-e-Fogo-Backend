@@ -1,5 +1,5 @@
 import 'dotenv/config'
-import Fastify from 'fastify'
+import Fastify, { FastifyInstance } from 'fastify'
 import cors from '@fastify/cors'
 import helmet from '@fastify/helmet'
 import rateLimit from '@fastify/rate-limit'
@@ -44,9 +44,18 @@ function buildLogger() {
 
   if (API_KEY) {
     streams.push({
+      level: isProd ? 'info' : 'debug',
       stream: new Transform({
-        objectMode: true,
+        // pino.multistream entrega string/Buffer JSON, não objeto.
         transform(chunk: any, _enc: any, callback: any) {
+          let log: any
+          try {
+            const raw = typeof chunk === 'string' ? chunk : chunk.toString('utf8')
+            log = JSON.parse(raw)
+          } catch {
+            callback()
+            return
+          }
           fetch(`${INGESTOR_URL}/api/v1/logs`, {
             method: 'POST',
             headers: {
@@ -55,26 +64,26 @@ function buildLogger() {
             },
             body: JSON.stringify({
               severity:
-                chunk.level >= 50 ? 'FATAL'
-                : chunk.level >= 40 ? 'ERROR'
-                : chunk.level >= 30 ? 'WARN'
-                : chunk.level >= 20 ? 'INFO'
+                log.level >= 50 ? 'FATAL'
+                : log.level >= 40 ? 'ERROR'
+                : log.level >= 30 ? 'WARN'
+                : log.level >= 20 ? 'INFO'
                 : 'DEBUG',
               service: {
-                name: chunk.name ?? 'gelo-fogo-api',
+                name: log.name ?? 'gelo-fogo-api',
                 version: process.env.APP_VERSION ?? '1.0.0',
                 environment: isProd ? 'production' : 'development',
-                host: chunk.hostname ?? hostname(),
+                host: log.hostname ?? hostname(),
               },
-              message: chunk.msg,
-              timestamp: chunk.time ? new Date(chunk.time).toISOString() : new Date().toISOString(),
+              message: log.msg,
+              timestamp: log.time ? new Date(log.time).toISOString() : new Date().toISOString(),
               metadata: {
-                reqId: chunk.reqId,
-                ...(chunk.err ? { error: chunk.err } : {}),
+                reqId: log.reqId,
+                ...(log.err ? { error: log.err } : {}),
               },
             }),
           }).catch(() => {})
-          callback(null, chunk)
+          callback()
         },
       }),
     })
@@ -86,14 +95,18 @@ function buildLogger() {
   )
 }
 
-export function buildApp(opts = {}) {
-  return Fastify({
-    logger: buildLogger(),
-    ...opts,
-  })
+export function buildApp(opts: Record<string, any> = {}): FastifyInstance {
+  // Fastify v5: `logger` aceita apenas objeto de config; instância pino vai em `loggerInstance`.
+  if (opts.logger === undefined && opts.loggerInstance === undefined) {
+    return Fastify({
+      loggerInstance: buildLogger(),
+      ...opts,
+    }) as unknown as FastifyInstance
+  }
+  return Fastify(opts) as unknown as FastifyInstance
 }
 
-export async function registerPlugins(app: ReturnType<typeof buildApp>) {
+export async function registerPlugins(app: FastifyInstance) {
   await app.register(helmet, {
     contentSecurityPolicy: {
       directives: {
@@ -107,16 +120,11 @@ export async function registerPlugins(app: ReturnType<typeof buildApp>) {
   })
 
   await app.register(cors, {
-    origin: (origin, cb) => {
-      if (!origin) {
-        cb(null, true)
-        return
+    origin: async (origin: string | undefined): Promise<boolean> => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        return true
       }
-      if (allowedOrigins.includes(origin)) {
-        cb(null, true)
-      } else {
-        cb(new Error(`Origem não permitida pelo CORS: ${origin}`), false)
-      }
+      throw new Error(`Origem não permitida pelo CORS: ${origin}`)
     },
     methods: ['GET', 'POST'],
     allowedHeaders: ['Content-Type'],
@@ -127,7 +135,7 @@ export async function registerPlugins(app: ReturnType<typeof buildApp>) {
     global: true,
     max: 60,
     timeWindow: '1 minute',
-    errorResponseBuilder: (_req, context) => ({
+    errorResponseBuilder: (_req: any, context: { after: string }) => ({
       error: 'Too Many Requests',
       message: `Limite de requisições atingido. Tente novamente em ${context.after}.`,
       statusCode: 429,
